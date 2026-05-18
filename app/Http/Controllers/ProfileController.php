@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Storage;
 class ProfileController extends Controller
 {
     /**
-     * Upload profile photo
+     * Upload profile photo (Legacy - for backward compatibility)
      */
     public function uploadPhoto(Request $request)
     {
@@ -41,5 +41,70 @@ class ProfileController extends Controller
             'message' => 'Foto profil berhasil diupload!',
             'photo_url' => asset('storage/' . $path),
         ]);
+    }
+
+    /**
+     * Upload avatar with simple form redirect
+     * Defensive Programming: Validasi ketat untuk memastikan file yang masuk benar-benar gambar
+     */
+    public function uploadAvatar(Request $request)
+    {
+        try {
+            // Validasi ketat agar file yang masuk benar-benar gambar
+            $request->validate([
+                'avatar' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048', // Maksimal 2MB
+            ], [
+                'avatar.required' => 'Pilih foto terlebih dahulu!',
+                'avatar.image' => 'File harus berupa gambar!',
+                'avatar.mimes' => 'Format harus jpg, png, atau gif!',
+                'avatar.max' => 'Ukuran foto maksimal 2MB!',
+            ]);
+
+            $user = Auth::user();
+
+            if (!$request->hasFile('avatar')) {
+                return back()->with('error', 'File tidak ditemukan dalam request!');
+            }
+
+            $file = $request->file('avatar');
+
+            // Defensive: Validasi file object tidak null
+            if (!$file->isValid()) {
+                return back()->with('error', 'File upload gagal! Silakan coba lagi.');
+            }
+
+            // Buat nama file unik: username_timestamp.extension
+            $fileName = $user->username . '_' . time() . '.' . $file->getClientOriginalExtension();
+
+            // Defensive: Jika user sudah punya foto lama, hapus dulu agar tidak memenuhi server
+            if ($user->avatar && Storage::disk('public')->exists('avatars/' . $user->avatar)) {
+                try {
+                    Storage::disk('public')->delete('avatars/' . $user->avatar);
+                } catch (\Exception $e) {
+                    \Log::warning("Failed to delete old avatar: " . $e->getMessage());
+                    // Continue dengan upload baru meski delete lama gagal
+                }
+            }
+
+            // Simpan file baru ke folder: storage/app/public/avatars
+            $path = $file->storeAs('avatars', $fileName, 'public');
+            
+            if (!$path) {
+                return back()->with('error', 'Gagal menyimpan file! Cek permission folder storage.');
+            }
+
+            // Update database user
+            $user->update([
+                'avatar' => $fileName
+            ]);
+
+            return back()->with('success', 'Foto profil berhasil diperbarui!');
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return back()->withErrors($e->errors())->withInput();
+        } catch (\Exception $e) {
+            \Log::error("Avatar upload error: " . $e->getMessage());
+            return back()->with('error', 'Terjadi kesalahan saat upload: ' . $e->getMessage());
+        }
     }
 }

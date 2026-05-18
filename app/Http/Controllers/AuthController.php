@@ -18,7 +18,7 @@ class AuthController extends Controller
             'email' => 'required|email|unique:users,email',
             'nim' => 'nullable|numeric|digits:12|unique:users,nim',
             'phone' => 'required|numeric|digits_between:10,13',
-            'address' => 'required|string|min:10', // Alamat minimal 10 karakter agar jelas
+            'address' => 'required|string|min:10',
             'password' => 'required|min:8|confirmed',
         ], [
             'nim.digits' => 'NIM harus tepat 12 digit!',
@@ -26,8 +26,18 @@ class AuthController extends Controller
             'address.min' => 'Alamatnya kurang lengkap, nih!',
         ]);
 
-        // Logika penentuan role otomatis berdasarkan NIM
-        $role = $request->nim ? 'mahasiswa' : 'user';
+        // RBAC: Penentuan role otomatis berdasarkan domain email & NIM
+        $role = 'user'; // Default role
+        
+        // Jika email menggunakan domain kampus Telkom University
+        if (str_ends_with($request->email, '@student.telkomuniversity.ac.id')) {
+            $role = 'mahasiswa';
+        }
+        
+        // Jika ada NIM, prioritaskan sebagai mahasiswa (verified student)
+        if ($request->nim) {
+            $role = 'mahasiswa';
+        }
 
         User::create([
             'name' => $request->name,
@@ -51,7 +61,14 @@ class AuthController extends Controller
 
         if (Auth::attempt($credentials)) {
             $request->session()->regenerate();
-            return redirect('/home');
+            
+            // RBAC: Redirect berdasarkan role user
+            if (Auth::user()->role === 'admin') {
+                return redirect('/admin/dashboard')->with('success', 'Selamat datang Admin!');
+            }
+            
+            // Mahasiswa dan user biasa ke halaman home
+            return redirect('/home')->with('success', 'Login berhasil! Selamat datang ' . Auth::user()->name . '!');
         }
 
         return back()->with('error', 'Username atau Password salah!');
@@ -66,22 +83,30 @@ class AuthController extends Controller
         return redirect('/');
     }
 
-    // Top Up Saldo
+    // Top Up Saldo - DEFENSIVE PROGRAMMING: Validasi minimal dan update balance
     public function topup(Request $request)
     {
         $request->validate([
-            'amount' => 'required|numeric|min:1000',
+            'amount' => 'required|numeric|min:5000',
         ], [
             'amount.required' => 'Nominal harus diisi!',
             'amount.numeric' => 'Nominal hanya boleh berisi angka!',
-            'amount.min' => 'Minimal top up Rp 1.000!',
+            'amount.min' => 'Minimal top up Rp 5.000!',
         ]);
 
-        // Proses top up ke database
-        // $user = Auth::user();
-        // $user->balance += $request->amount;
-        // $user->save();
+        try {
+            $user = Auth::user();
+            $amount = (int) $request->amount;
 
-        return back()->with('success', 'Top up berhasil! Saldo kamu bertambah Rp ' . number_format($request->amount, 0, ',', '.'));
+            // Increment balance di database
+            $user->increment('balance', $amount);
+            
+            // Refresh user untuk mendapatkan balance terbaru
+            $user->refresh();
+
+            return back()->with('success', 'Top up berhasil! Saldo kamu bertambah Rp ' . number_format($amount, 0, ',', '.') . '. Total saldo sekarang: Rp ' . number_format($user->balance, 0, ',', '.'));
+        } catch (\Exception $e) {
+            return back()->with('error', 'Terjadi kesalahan saat top up. Silakan coba lagi.');
+        }
     }
 }
