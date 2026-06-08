@@ -34,6 +34,13 @@ echo "✅ .env generated with runtime values"
 echo "📋 Generated .env content (first 10 lines):"
 head -10 .env
 
+# Verify important .env values
+echo ""
+echo "🔍 Verification:"
+grep "^APP_KEY=" .env | head -1
+grep "^DB_HOST=" .env | head -1
+grep "^DB_USERNAME=" .env | head -1
+
 # Step 2: Generate APP_KEY if not set
 echo "🔑 Checking APP_KEY..."
 APP_KEY=$(grep "^APP_KEY=" .env | cut -d'=' -f2)
@@ -106,10 +113,49 @@ php artisan config:cache 2>/dev/null || echo "⚠️  Config cache failed (non-c
 php artisan route:cache 2>/dev/null || echo "⚠️  Route cache failed (non-critical)"  
 php artisan view:cache 2>/dev/null || echo "⚠️  View cache failed (non-critical)"
 
-# Step 7: Start PHP server
+# Step 7: Start PHP server with minimal router
 PORT=${PORT:-8000}
 echo "✅ Application initialization complete!"
-echo "🌐 Starting Laravel application server on 0.0.0.0:$PORT..."
+echo "🌐 Starting server on 0.0.0.0:$PORT"
 
-# Use Laravel's built-in server (more reliable than php -S with router)
-cd /app && php artisan serve --host=0.0.0.0 --port=$PORT
+# Create ultra-simple router with error output
+cat > /tmp/router.php << 'ROUTER'
+<?php
+// Simplest possible router for Laravel
+$uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/';
+$public = '/app/public';
+
+// If it's a static file that exists, serve it
+$file = $public . $uri;
+if ($uri !== '/' && is_file($file)) {
+    return false;
+}
+
+// Everything else goes to Laravel
+// Set required server variables
+$_SERVER['SCRIPT_FILENAME'] = $public . '/index.php';
+$_SERVER['SCRIPT_NAME'] = '/index.php';
+
+// Capture any errors from Laravel
+error_reporting(E_ALL);
+set_error_handler(function($errno, $errstr, $errfile, $errline) {
+    http_response_code(500);
+    echo "ERROR [$errno]: $errstr in $errfile:$errline\n";
+    return true;
+}, E_ALL);
+
+set_exception_handler(function($e) {
+    http_response_code(500);
+    echo "EXCEPTION: " . $e->getMessage() . "\n" . $e->getTraceAsString();
+});
+
+try {
+    require $public . '/index.php';
+} catch (Exception $e) {
+    http_response_code(500);
+    echo "FATAL: " . $e->getMessage();
+}
+ROUTER
+
+# Start server
+cd /app && php -S 0.0.0.0:$PORT -r /tmp/router.php 2>&1
