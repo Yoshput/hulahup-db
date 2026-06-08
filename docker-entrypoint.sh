@@ -116,31 +116,35 @@ echo "💡 Server responding at http://0.0.0.0:$PORT"
 mkdir -p /tmp
 cat > /tmp/router.php << 'ROUTER'
 <?php
-// Simple router for Laravel - all requests go through index.php
-$uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-$uri = rawurldecode($uri);
-
-// Health check endpoint (no Laravel required)
-if ($uri === '/health' || $uri === '/up') {
-    http_response_code(200);
-    echo json_encode(['status' => 'ok', 'time' => date('Y-m-d H:i:s')]);
-    return;
-}
+// Get request URI
+$uri = $_SERVER['REQUEST_URI'] ?? '/';
+$path = parse_url($uri, PHP_URL_PATH) ?: '/';
+$path = rawurldecode($path);
 
 // Serve static files directly
-$public = '/app/public';
-$file = $public . $uri;
+$public_dir = '/app/public';
+$requested_file = $public_dir . $path;
 
-// Check if requesting a real file/directory that exists
-if ($uri !== '/' && is_file($file)) {
-    // It's a real file - let PHP serve it directly
+// Check if it's a real file (not directory)
+if (file_exists($requested_file) && is_file($requested_file)) {
+    // Let PHP server serve static file directly
     return false;
 }
 
-// Everything else routes through Laravel
-// This includes: /, /api/*, /login, /dashboard, etc.
+// Default: route to index.php for Laravel routing
+$index = $public_dir . '/index.php';
+if (!file_exists($index)) {
+    http_response_code(500);
+    die("ERROR: index.php not found at $index");
+}
+
+// Set required variables for Laravel
+$_SERVER['SCRIPT_FILENAME'] = $index;
+$_SERVER['SCRIPT_NAME'] = '/index.php';
 $_SERVER['PHP_SELF'] = '/index.php';
-require $public . '/index.php';
+
+// Include Laravel's entry point
+require $index;
 ROUTER
 
 # Start PHP server with router
