@@ -13,6 +13,11 @@ use App\Http\Controllers\CartController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\HomeController;
 
+// Healthcheck endpoint for Railway
+Route::get('/up', function () {
+    return response()->json(['status' => 'ok']);
+});
+
 // 1. Halaman LANDING PAGE (Welcome) - Ini pintu masuk utama
 Route::get('/', function () {
     return view('welcome'); // Ini akan memanggil file welcome.blade.php yang ada logo Hulahup
