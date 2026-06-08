@@ -112,33 +112,36 @@ echo "✅ Application initialization complete!"
 echo "🌐 Starting PHP server on 0.0.0.0:$PORT..."
 echo "💡 Server responding at http://0.0.0.0:$PORT"
 
-# Create router script with better error handling
+# Create simple router script - let PHP handle all routing via index.php
 mkdir -p /tmp
 cat > /tmp/router.php << 'ROUTER'
 <?php
-$uri = urldecode(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH));
+// Simple router for Laravel - all requests go through index.php
+$uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+$uri = rawurldecode($uri);
 
-// For directories and root path, route to index.php  
-if ($uri === '' || $uri === '/' || substr($uri, -1) === '/') {
-    require '/app/public/index.php';
+// Health check endpoint (no Laravel required)
+if ($uri === '/health' || $uri === '/up') {
+    http_response_code(200);
+    echo json_encode(['status' => 'ok', 'time' => date('Y-m-d H:i:s')]);
     return;
 }
 
-// Check if requesting a file that exists (static assets)
-$file = '/app/public' . $uri;
-if (file_exists($file) && !is_dir($file)) {
-    return false; // Serve the file directly
+// Serve static files directly
+$public = '/app/public';
+$file = $public . $uri;
+
+// Check if requesting a real file/directory that exists
+if ($uri !== '/' && is_file($file)) {
+    // It's a real file - let PHP serve it directly
+    return false;
 }
 
-// Try to load the file if it might be a PHP file
-if (file_exists($file . '.php') && !is_dir($file)) {
-    require $file . '.php';
-    return;
-}
-
-// Everything else routes to index.php (Laravel routing)
-require '/app/public/index.php';
+// Everything else routes through Laravel
+// This includes: /, /api/*, /login, /dashboard, etc.
+$_SERVER['PHP_SELF'] = '/index.php';
+require $public . '/index.php';
 ROUTER
 
 # Start PHP server with router
-cd /app && php -S 0.0.0.0:$PORT -r /tmp/router.php
+cd /app && php -S 0.0.0.0:$PORT -r /tmp/router.php 2>&1
