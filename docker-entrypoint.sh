@@ -58,7 +58,7 @@ if [ -z "$APP_KEY" ]; then
         echo "⚠️  APP_KEY generation had issues, generating fallback..."
         # Fallback: generate a random key manually
         RANDOM_KEY="base64:$(head -c 32 /dev/urandom | base64)"
-        echo "APP_KEY=$RANDOM_KEY" >> .env
+        sed -i "s/^APP_KEY=.*/APP_KEY=$RANDOM_KEY/" .env
         echo "✅ Fallback key added"
     fi
 else
@@ -168,3 +168,4 @@ ROUTER
 
 # Start server
 cd /var/www/html && php -S 0.0.0.0:$PORT -r /tmp/router.php 2>&1
+
