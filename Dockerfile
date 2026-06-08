@@ -95,10 +95,6 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # Expose the port PHP's built-in server will listen on
 EXPOSE 8000
 
-# Health check to ensure app is responding
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-8000}/up || exit 1
-
 # Use entrypoint script for robust initialization
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 

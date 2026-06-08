@@ -58,7 +58,7 @@ if [ -z "$APP_KEY" ]; then
         echo "⚠️  APP_KEY generation had issues, generating fallback..."
         # Fallback: generate a random key manually
         RANDOM_KEY="base64:$(head -c 32 /dev/urandom | base64)"
-        echo "APP_KEY=$RANDOM_KEY" >> .env
+        sed -i "s/^APP_KEY=.*/APP_KEY=$RANDOM_KEY/" .env
         echo "✅ Fallback key added"
     fi
 else
@@ -122,49 +122,11 @@ php artisan config:cache 2>/dev/null || echo "⚠️  Config cache failed (non-c
 php artisan route:cache 2>/dev/null || echo "⚠️  Route cache failed (non-critical)"  
 php artisan view:cache 2>/dev/null || echo "⚠️  View cache failed (non-critical)"
 
-# Step 7: Start PHP server with minimal router
+# Step 7: Start PHP server with Laravel's public directory
 PORT=${PORT:-8000}
 echo "✅ Application initialization complete!"
 echo "🌐 Starting server on 0.0.0.0:$PORT"
 
-# Create ultra-simple router with error output
-cat > /tmp/router.php << 'ROUTER'
-<?php
-// Simplest possible router for Laravel
-$uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/';
-$public = '/var/www/html/public';
+# Start PHP built-in server pointing to public directory
+cd /var/www/html && php -S 0.0.0.0:$PORT 2>&1
 
-// If it's a static file that exists, serve it
-$file = $public . $uri;
-if ($uri !== '/' && is_file($file)) {
-    return false;
-}
-
-// Everything else goes to Laravel
-// Set required server variables
-$_SERVER['SCRIPT_FILENAME'] = $public . '/index.php';
-$_SERVER['SCRIPT_NAME'] = '/index.php';
-
-// Capture any errors from Laravel
-error_reporting(E_ALL);
-set_error_handler(function($errno, $errstr, $errfile, $errline) {
-    http_response_code(500);
-    echo "ERROR [$errno]: $errstr in $errfile:$errline\n";
-    return true;
-}, E_ALL);
-
-set_exception_handler(function($e) {
-    http_response_code(500);
-    echo "EXCEPTION: " . $e->getMessage() . "\n" . $e->getTraceAsString();
-});
-
-try {
-    require $public . '/index.php';
-} catch (Exception $e) {
-    http_response_code(500);
-    echo "FATAL: " . $e->getMessage();
-}
-ROUTER
-
-# Start server
-cd /var/www/html && php -S 0.0.0.0:$PORT -r /tmp/router.php 2>&1
