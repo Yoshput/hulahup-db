@@ -37,13 +37,16 @@ head -10 .env
 # Step 2: Generate APP_KEY if not set
 echo "🔑 Checking APP_KEY..."
 APP_KEY=$(grep "^APP_KEY=" .env | cut -d'=' -f2)
-if [ -z "$APP_KEY" ] || [ "$APP_KEY" = "\${APP_KEY}" ]; then
-    echo "📝 Generating APP_KEY..."
-    php artisan key:generate --no-interaction --force || {
-        echo "⚠️  Warning: APP_KEY generation failed, but continuing..."
-    }
+if [ -z "$APP_KEY" ]; then
+    echo "📝 APP_KEY is empty, generating..."
+    php artisan key:generate --no-interaction --force 2>&1 | head -5
+    if [ $? -eq 0 ]; then
+        echo "✅ APP_KEY generated successfully"
+    else
+        echo "⚠️  APP_KEY generation might have issues but continuing..."
+    fi
 else
-    echo "✅ APP_KEY already set"
+    echo "✅ APP_KEY found: ${APP_KEY:0:20}..."
 fi
 
 # Step 3: Wait for database to be ready (if DB_HOST is set)
@@ -77,6 +80,11 @@ php artisan cache:clear 2>/dev/null || true
 php artisan route:clear 2>/dev/null || true
 php artisan view:clear 2>/dev/null || true
 
+# Step 4B: Show database configuration for debugging
+echo "🔍 Database Configuration:"
+grep "^DB_" .env | head -5
+
+
 # Step 5: Run database migrations (non-blocking)
 echo "🗄️  Running database migrations..."
 if php artisan migrate --force --no-interaction 2>&1; then
@@ -104,24 +112,33 @@ echo "✅ Application initialization complete!"
 echo "🌐 Starting PHP server on 0.0.0.0:$PORT..."
 echo "💡 Server responding at http://0.0.0.0:$PORT"
 
-# Create router script with absolute paths
+# Create router script with better error handling
 mkdir -p /tmp
 cat > /tmp/router.php << 'ROUTER'
 <?php
-// Get request URI
 $uri = urldecode(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH));
 
-// Check if file exists in public directory (for static files)
-$file = '/app/public' . $uri;
-if ($uri !== '/' && file_exists($file) && is_file($file)) {
-    // Serve static file directly
-    return false;
+// For directories and root path, route to index.php  
+if ($uri === '' || $uri === '/' || substr($uri, -1) === '/') {
+    require '/app/public/index.php';
+    return;
 }
 
-// Route all other requests to index.php (Laravel routing)
-$_SERVER['REQUEST_URI'] = $uri;
+// Check if requesting a file that exists (static assets)
+$file = '/app/public' . $uri;
+if (file_exists($file) && !is_dir($file)) {
+    return false; // Serve the file directly
+}
+
+// Try to load the file if it might be a PHP file
+if (file_exists($file . '.php') && !is_dir($file)) {
+    require $file . '.php';
+    return;
+}
+
+// Everything else routes to index.php (Laravel routing)
 require '/app/public/index.php';
 ROUTER
 
-# Start PHP server with router from /app directory
-cd /app && exec php -S 0.0.0.0:$PORT -r /tmp/router.php
+# Start PHP server with router
+cd /app && php -S 0.0.0.0:$PORT -r /tmp/router.php
