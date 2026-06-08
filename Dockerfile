@@ -97,7 +97,8 @@ EXPOSE 8000
 
 # Health check to ensure app is responding
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-8000}/health.html || exit 1
+    CMD curl -f http://localhost:${PORT:-8000}/up || exit 1
 
 # Use entrypoint script for robust initialization
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+
