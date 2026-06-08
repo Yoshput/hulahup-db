@@ -2,7 +2,7 @@
 set -e
 
 # Ensure we're in the app directory
-cd /app
+cd /var/www/html
 
 echo "🚀 Starting Hulahup App initialization..."
 echo "📂 Working directory: $(pwd)"
@@ -132,7 +132,7 @@ cat > /tmp/router.php << 'ROUTER'
 <?php
 // Simplest possible router for Laravel
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/';
-$public = '/app/public';
+$public = '/var/www/html/public';
 
 // If it's a static file that exists, serve it
 $file = $public . $uri;
@@ -167,4 +167,5 @@ try {
 ROUTER
 
 # Start server
-cd /app && php -S 0.0.0.0:$PORT -r /tmp/router.php 2>&1
+cd /var/www/html && php -S 0.0.0.0:$PORT -r /tmp/router.php 2>&1
+
