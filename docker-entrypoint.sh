@@ -1,7 +1,11 @@
 #!/bin/sh
 set -e
 
+# Ensure we're in the app directory
+cd /app
+
 echo "🚀 Starting Hulahup App initialization..."
+echo "📂 Working directory: $(pwd)"
 
 # Step 1: Generate .env from .env.example with environment variables
 echo "📝 Generating .env from .env.example with runtime environment variables..."
@@ -45,12 +49,17 @@ grep "^DB_USERNAME=" .env | head -1
 echo "🔑 Checking APP_KEY..."
 APP_KEY=$(grep "^APP_KEY=" .env | cut -d'=' -f2)
 if [ -z "$APP_KEY" ]; then
-    echo "📝 APP_KEY is empty, generating..."
-    php artisan key:generate --no-interaction --force 2>&1 | head -5
-    if [ $? -eq 0 ]; then
-        echo "✅ APP_KEY generated successfully"
+    echo "📝 APP_KEY is empty, generating with artisan..."
+    if php artisan key:generate --no-interaction --force 2>&1 | grep -i "success\|key"; then
+        echo "✅ APP_KEY generated"
+        APP_KEY=$(grep "^APP_KEY=" .env | cut -d'=' -f2)
+        echo "   Generated key: ${APP_KEY:0:20}..."
     else
-        echo "⚠️  APP_KEY generation might have issues but continuing..."
+        echo "⚠️  APP_KEY generation had issues, generating fallback..."
+        # Fallback: generate a random key manually
+        RANDOM_KEY="base64:$(head -c 32 /dev/urandom | base64)"
+        echo "APP_KEY=$RANDOM_KEY" >> .env
+        echo "✅ Fallback key added"
     fi
 else
     echo "✅ APP_KEY found: ${APP_KEY:0:20}..."
