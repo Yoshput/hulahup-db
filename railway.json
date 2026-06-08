@@ -6,8 +6,7 @@
   },
   "deploy": {
     "restartPolicyType": "on_failure",
-    "restartPolicyMaxRetries": 3,
-    "healthcheckPath": "/up",
-    "healthcheckTimeout": 30
+    "restartPolicyMaxRetries": 3
   }
 }
+
