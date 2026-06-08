@@ -1,16 +1,13 @@
 #!/bin/sh
 set -e
 
-# Ensure we're in the app directory
 cd /var/www/html
 
 echo "🚀 Starting Hulahup App initialization..."
 echo "📂 Working directory: $(pwd)"
 
-# Step 1: Generate .env from .env.example with environment variables
-echo "📝 Generating .env from .env.example with runtime environment variables..."
-
-# Export environment variables for envsubst (set defaults if not present)
+# Step 1: Generate .env
+echo "📝 Generating .env..."
 export APP_NAME="${APP_NAME:-Hulahup App}"
 export APP_ENV="${APP_ENV:-production}"
 export APP_KEY="${APP_KEY:-}"
@@ -31,117 +28,41 @@ export SESSION_DRIVER="${SESSION_DRIVER:-database}"
 export CACHE_STORE="${CACHE_STORE:-database}"
 export QUEUE_CONNECTION="${QUEUE_CONNECTION:-database}"
 
-# Use envsubst to expand all environment variables in .env.example
 envsubst '${APP_NAME} ${APP_ENV} ${APP_KEY} ${APP_DEBUG} ${APP_URL} ${APP_LOCALE} ${APP_FALLBACK_LOCALE} ${APP_FAKER_LOCALE} ${LOG_CHANNEL} ${LOG_LEVEL} ${DB_CONNECTION} ${DB_HOST} ${DB_PORT} ${DB_DATABASE} ${DB_USERNAME} ${DB_PASSWORD} ${SESSION_DRIVER} ${CACHE_STORE} ${QUEUE_CONNECTION}' < .env.example > .env
 
-echo "✅ .env generated with runtime values"
-echo "📋 Generated .env content (first 10 lines):"
-head -10 .env
-
-# Verify important .env values
-echo ""
-echo "🔍 Verification:"
-grep "^APP_KEY=" .env | head -1
-grep "^DB_HOST=" .env | head -1
-grep "^DB_USERNAME=" .env | head -1
+echo "✅ .env generated"
 
 # Step 2: Generate APP_KEY if not set
 echo "🔑 Checking APP_KEY..."
 APP_KEY=$(grep "^APP_KEY=" .env | cut -d'=' -f2)
 if [ -z "$APP_KEY" ]; then
-    echo "📝 APP_KEY is empty, generating with artisan..."
-    if php artisan key:generate --no-interaction --force 2>&1 | grep -i "success\|key"; then
-        echo "✅ APP_KEY generated"
-        APP_KEY=$(grep "^APP_KEY=" .env | cut -d'=' -f2)
-        echo "   Generated key: ${APP_KEY:0:20}..."
-    else
-        echo "⚠️  APP_KEY generation had issues, generating fallback..."
-        # Fallback: generate a random key manually
-        RANDOM_KEY="base64:$(head -c 32 /dev/urandom | base64)"
-        sed -i "s/^APP_KEY=.*/APP_KEY=$RANDOM_KEY/" .env
-        echo "✅ Fallback key added"
-    fi
+    echo "📝 Generating APP_KEY..."
+    php artisan key:generate --no-interaction --force 2>&1 || true
 else
-    echo "✅ APP_KEY found: ${APP_KEY:0:20}..."
+    echo "✅ APP_KEY found"
 fi
 
-# Step 3: Wait for database to be ready (if DB_HOST is set)
-echo "🔍 Checking database connection..."
-DB_HOST=$(grep "^DB_HOST=" .env | cut -d'=' -f2)
-DB_PORT=$(grep "^DB_PORT=" .env | cut -d'=' -f2 || echo "3306")
-DB_USERNAME=$(grep "^DB_USERNAME=" .env | cut -d'=' -f2)
-echo "   Database: $DB_HOST:$DB_PORT as $DB_USERNAME"
-if [ -n "$DB_HOST" ] && [ "$DB_HOST" != "127.0.0.1" ]; then
-    echo "⏳ Waiting for database at $DB_HOST:$DB_PORT..."
-    max_attempts=30
-    attempt=0
-    while [ $attempt -lt $max_attempts ]; do
-        if nc -z "$DB_HOST" "$DB_PORT" 2>/dev/null; then
-            echo "✅ Database is reachable"
-            break
-        fi
-        attempt=$((attempt + 1))
-        echo "⏳ Attempt $attempt/$max_attempts: Waiting for database..."
-        sleep 2
-    done
-    if [ $attempt -eq $max_attempts ]; then
-        echo "⚠️  Warning: Database not reachable after $max_attempts attempts, will attempt migration anyway..."
-    fi
-fi
-
-# Step 4: Clear all caches first (important for config changes)
-echo "🧹 Clearing application caches..."
+# Step 3: Clear caches
+echo "🧹 Clearing caches..."
 php artisan config:clear 2>/dev/null || true
 php artisan cache:clear 2>/dev/null || true
 php artisan route:clear 2>/dev/null || true
 php artisan view:clear 2>/dev/null || true
 
-# Step 4B: Show database configuration for debugging
-echo "🔍 Database Configuration:"
-grep "^DB_" .env | head -5
+# Step 4: Run migrations (non-blocking)
+echo "🗄️  Running migrations..."
+php artisan migrate --force --no-interaction 2>&1 || echo "⚠️  Migrations skipped (database may not be available)"
 
+# Step 5: Build caches
+echo "⚙️  Building caches..."
+php artisan config:cache 2>/dev/null || true
+php artisan route:cache 2>/dev/null || true
+php artisan view:cache 2>/dev/null || true
 
-# Step 5: Run database migrations (non-blocking)
-echo "🗄️  Running database migrations..."
-if php artisan migrate --force --no-interaction 2>&1; then
-    echo "✅ Database migrations completed successfully"
-else
-    MIGRATION_EXIT=$?
-    if [ $MIGRATION_EXIT -eq 0 ]; then
-        echo "✅ Migrations completed"
-    else
-        echo "⚠️  Migrations had issues (exit code: $MIGRATION_EXIT)"
-        echo "    This may be normal on first deploy or if schema is already synced"
-        echo "    Continuing anyway - app will still start"
-    fi
-fi
-
-# Step 6: Rebuild caches for production
-echo "⚙️  Building application caches..."
-php artisan config:cache 2>/dev/null || echo "⚠️  Config cache failed (non-critical)"
-php artisan route:cache 2>/dev/null || echo "⚠️  Route cache failed (non-critical)"  
-php artisan view:cache 2>/dev/null || echo "⚠️  View cache failed (non-critical)"
-
-# Step 7: Start PHP server with router
+# Step 6: Start Laravel with Artisan serve
 PORT=${PORT:-8000}
-echo "✅ Application initialization complete!"
-echo "🌐 Starting server on 0.0.0.0:$PORT"
+echo "✅ Initialization complete!"
+echo "🌐 Starting Laravel on 0.0.0.0:$PORT"
 
-# Create router script that properly loads Laravel
-cat > /tmp/router.php << 'ROUTER'
-<?php
-$uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/';
-
-// Serve static files from public directory
-if ($uri !== '/' && is_file(__DIR__ . $uri)) {
-    return false;
-}
-
-// Route all requests to index.php
-$_SERVER['SCRIPT_FILENAME'] = __DIR__ . '/index.php';
-require __DIR__ . '/index.php';
-ROUTER
-
-# Start PHP server from public directory with router
-cd /var/www/html/public && php -S 0.0.0.0:$PORT -r /tmp/router.php 2>&1
+php artisan serve --host=0.0.0.0 --port=$PORT
 
