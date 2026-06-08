@@ -122,29 +122,11 @@ php artisan config:cache 2>/dev/null || echo "⚠️  Config cache failed (non-c
 php artisan route:cache 2>/dev/null || echo "⚠️  Route cache failed (non-critical)"  
 php artisan view:cache 2>/dev/null || echo "⚠️  View cache failed (non-critical)"
 
-# Step 7: Start PHP server with router
+# Step 7: Start PHP server pointing to public directory
 PORT=${PORT:-8000}
 echo "✅ Application initialization complete!"
 echo "🌐 Starting server on 0.0.0.0:$PORT"
 
-# Create router script for Laravel
-cat > /tmp/router.php << 'ROUTER'
-<?php
-$uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/';
-$public = '/var/www/html/public';
-
-// Serve static files directly
-if ($uri !== '/' && is_file($public . $uri)) {
-    return false;
-}
-
-// Route everything else to Laravel's index.php
-$_SERVER['SCRIPT_FILENAME'] = $public . '/index.php';
-$_SERVER['SCRIPT_NAME'] = '/index.php';
-
-require $public . '/index.php';
-ROUTER
-
-# Start PHP server with router
-cd /var/www/html && php -S 0.0.0.0:$PORT -r /tmp/router.php 2>&1
+# Start PHP built-in server with public directory as document root
+cd /var/www/html/public && php -S 0.0.0.0:$PORT 2>&1
 
